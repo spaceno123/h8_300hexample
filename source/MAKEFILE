@@ -1,0 +1,58 @@
+### for MAKE Version 4.0  Copyright (c) 1987, 1996 Borland International ###
+
+#=== macro's ===
+C38 = cc38h -CPU=300HA -I=\work\H8-3048F\h8c\include $<
+ASM = A38H $<-CPU=300HA:24 #-DEBUG
+LNK = L38H -SUBCOMMAND=$&.sub #-DEBUG
+CNV = C38H $<
+#===============
+
+#=== roule's ===
+.c.obj:
+	$(C38) > $&.tag
+	@type $&.tag
+	@del $&.tag
+.mar.obj:
+	$(ASM) > $&.tag
+	@type $&.tag
+	@del $&.tag
+.abs.mot:
+	$(CNV)
+#===============
+
+#--- link's ---
+# if debuger.obj link then "#" delete
+TEST =		init.obj libsetup.obj test.obj # debuger.obj
+LIB =		..\..\h8c\lib\c38hab.lib
+#--------------
+
+#--- final target ---
+test.mot:	test.abs
+
+#--------------------
+
+#--- make .abs ---
+# if debuger.obj link then modify
+#START DEBUG_ROM,P,C,D(100)
+#START DEBUG_RAM,R,B,S(0FFEF10)
+# if debuger.obj link then add
+#START DEBUG_SCI(0FFFFB8)
+
+test.abs:	$(TEST) \
+		makefile
+	copy &&!
+OUTPUT $&
+INPUT $(TEST)
+LIBRARY $(LIB)
+START V(0)
+START P,C,D(100)
+START R,B,S(0FFEF10)
+START SE(0FFFF10)
+ROM (D,R)
+PRINT $&
+EXIT
+! $&.sub > nul
+	$(LNK)
+#-----------------
+
+

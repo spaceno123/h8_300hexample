@@ -1,0 +1,199 @@
+;
+;	Program	INIT.MAR
+;	Date	2000/11/11 .. 2000/11/11
+;	Copyright (C) 2000 by AKIYA
+;
+
+	;--------------
+	;--- define ---
+	;--------------
+
+IOREGS_OFFSET	.equ	H'ff0000	; 24:H'ff0000(16M), 20:H'f0000(1M)
+
+SMR1	.equ	H'ffb8+IOREGS_OFFSET
+BRR1	.equ	H'ffb9+IOREGS_OFFSET
+SCR1	.equ	H'ffba+IOREGS_OFFSET
+TDR1	.equ	H'ffbb+IOREGS_OFFSET
+SSR1	.equ	H'ffbc+IOREGS_OFFSET
+RDR1	.equ	H'ffbd+IOREGS_OFFSET
+
+TDRE1B	.equ	7
+RDRF1B	.equ	6
+ORER1B	.equ	5
+FER1B	.equ	4
+PER1B	.equ	3
+
+TDRE1	.bequ	TDRE1B,SSR1
+RDRF1	.bequ	RDRF1B,SSR1
+ORER1	.bequ	ORER1B,SSR1
+FER1	.bequ	FER1B,SSR1
+PER1	.bequ	PER1B,SSR1
+
+TSTR	.equ	H'ff60+IOREGS_OFFSET
+
+TCR1	.equ	H'ff6e+IOREGS_OFFSET
+TIER1	.equ	H'ff70+IOREGS_OFFSET
+TSR1	.equ	H'ff71+IOREGS_OFFSET
+GRA1	.equ	H'ff74+IOREGS_OFFSET
+
+	;////////////////////
+	;/// vector table ///
+	;////////////////////
+
+	.section	V, CODE, ALIGN=2
+
+	.org	0		; reset vector
+	.data.l	_INIT
+
+;/// if nrtm(debuger.obj) linked ///
+;	.org	56*4		; sci channel 1
+;	.import	dbg_sci_err, dbg_sci_rxd, dbg_sci_txd, dbg_init
+;	.data.l	dbg_sci_err
+;	.data.l	dbg_sci_rxd
+;	.data.l	dbg_sci_txd
+;/// endif ///
+
+	.section	S, STACK, ALIGN=2
+
+	.section	SE, STACK, ALIGN=2
+
+	;////////////
+	;/// INIT ///
+	;////////////
+
+	.section	P, CODE, ALIGN=2
+
+	.import	__INITSCT, __INITLIB, _main, __CLOSEALL
+
+;ADJ-702-137C (HITACH C compiler user's manual) p123 ..
+_INIT:
+	mov.l	#startof SE,sp	; stack set
+	andc	#B'00111111,ccr	; interrupt enable
+	bsr	__INITSCT
+	bsr	__INITLIB
+	bsr	_main
+	bsr	__CLOSEALL
+	sleep
+	bra	$:8
+;.. ADJ-702-137C (HITACH C compiler user's manual) p123
+
+	;//////////////////////
+	;/// _INIT_LOWLEVEL ///
+	;//////////////////////
+
+	.section	P, CODE, ALIGN=2
+
+	.export	__INIT_LOWLEVEL
+
+;/// if nrtm(debuger.obj) linked ///
+	.import	dbg_mode_in	; for check
+;__INIT_LOWLEVEL:
+;	orc	#B'11000000,ccr
+;	jsr	@dbg_init
+;	andc	#B'00111111,ccr
+;	jsr	@dbg_mode_in	; for check
+;	rts
+;/// else ///
+__INIT_LOWLEVEL:
+	;
+	; other setup
+	;
+	;* SCI pre-initialize *
+	mov.b	#B'00000000,r0l	; TIE=0,RIE=0,TE=0,RE=0,MPIE=0,TEIE=0,CKE=00
+	mov.b	r0l,@SCR1:8
+	mov.b	#B'00000000,r0l	; C/A=0,CHR=0,PE=0,O/E=0,STOP=0,MP=0,CKS=00
+	mov.b	r0l,@SMR1:8
+	mov.b	#(16*1000000/(32*38400))-1,r0l ; clock=16MHz,n=0,B=38400bit/s
+	mov.b	r0l,@BRR1:8
+	;* 1bit wait *
+	inc.b	r0l		; for -1
+	mov.b	#32/(2+2),r0h
+	mulxu.b	r0h,r0
+__INIT_LOWLEVEL_0
+	dec.w	#1,r0			; 2 state
+	bne	__INIT_LOWLEVEL_0:8	; 2 state
+	;* SCI post-initialize *
+	bclr	RDRF1
+	bclr	ORER1
+	bclr	FER1
+	bclr	PER1
+	mov.b	#B'00110000,r0l	; TIE=0,RIE=1,TE=1,RE=1,MPIE=0,TEIE=0,CKE=00
+	mov.b	r0l,@SCR1:8
+	rts
+;/// endif ///
+
+	;///////////////
+	;/// charput ///
+	;///////////////
+
+	.section	P, CODE, ALIGN=2
+
+	.export	_charput
+
+;/// if nrtm(debuger.obj) linked ///
+;	.import	dbg_putc
+;_charput:
+;	jsr	@dbg_putc
+;	bcc	_charput:8
+;	rts
+;/// else ///
+_charput:
+	bld	TDRE1
+	bcc	_charput:8
+	mov.b	r0l,@TDR1:8
+	bclr	TDRE1
+	rts
+;/// endif ///
+
+	;///////////////
+	;/// charget ///
+	;///////////////
+
+	.section	P, CODE, ALIGN=2
+
+	.export	_charget
+
+;/// if nrtm(debuger.obj) linked ///
+;	.import	dbg_getc
+;_charget:
+;	jsr	@dbg_getc
+;	bcc	_charget:8
+;	;/// if echo ///
+;	bsr	_charput
+;	cmp.b	#H'0d,r0l
+;	bne	_charget_echo:8
+;	mov.b	#H'0a,r0l
+;	bsr	_charput
+;	mov.b	#H'0d,r0l
+;_charget_echo
+;	;/// end if ///
+;	rts
+;/// else ///
+_charget:
+	mov.b	@SSR1:8,r0l
+	bld	#RDRF1B,r0l
+	and.b	#B'00111000,r0l
+	bne	_charget_0:8	; error !
+	bcc	_charget:8
+	mov.b	@RDR1:8,r0l
+	bclr	RDRF1
+	;/// if echo ///
+	bsr	_charput
+	cmp.b	#H'0d,r0l
+	bne	_charget_echo:8
+	mov.b	#H'0a,r0l
+	bsr	_charput
+	mov.b	#H'0d,r0l
+_charget_echo
+	;/// end if ///
+	rts
+_charget_0
+	bclr	RDRF1		; data lost !
+	bclr	ORER1
+	bclr	FER1
+	bclr	PER1
+	bra	_charget:8
+;/// endif ///
+
+	.end
+
